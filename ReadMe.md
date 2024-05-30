@@ -40,7 +40,7 @@ Task queues can be added to the system dynamically, each with its own concurrenc
 
 ## Example
 
-The provided `main` function demonstrates setting up a task queue manager, adding a queue, populating it with tasks, and starting and stopping these tasks.
+The provided `example` function demonstrates setting up a task queue manager, adding a queue, populating it with tasks, and starting and stopping these tasks.
 
 ## Building and Running
 

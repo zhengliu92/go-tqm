@@ -186,7 +186,7 @@ func (tqm *TaskQueueManager) RemoveQueue(queue *TaskQueue) error {
 	return nil
 }
 
-func main() {
+func run_example() {
 	manager := &TaskQueueManager{
 		Queues: make(map[string]*TaskQueue),
 	}
@@ -253,5 +253,9 @@ func main() {
 		return
 	}
 
-	manager.wg.Wait() // Wait for all tasks to complete
+	manager.wg.Wait() // Wait for all tasks to complete}
+}
+
+func main() {
+	run_example()
 }
