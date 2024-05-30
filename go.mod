@@ -1,3 +1,3 @@
-module github.com/zhengliu92/gotpm
+module github.com/zhengliu92/go-tqm
 
 go 1.22.2

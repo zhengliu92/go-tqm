@@ -1,4 +1,4 @@
-# Task Management System
+# Golang Task Queue Management System
 
 This Go program defines a concurrent task management system that allows tasks to be queued, started, stopped, and managed across multiple queues.
 

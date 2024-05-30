@@ -194,7 +194,7 @@ func main() {
 	queue := &TaskQueue{
 		Name:        "queue1",
 		Tasks:       make(map[string]*Task),
-		Concurrency: 1, // Limit to two concurrent tasks
+		Concurrency: 2, // Limit the number of concurrent tasks to 2
 
 	}
 
