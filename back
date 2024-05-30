@@ -1,4 +1,4 @@
-package main
+package none
 
 import (
 	"context"
@@ -28,7 +28,7 @@ type Task struct {
 	wg     *sync.WaitGroup
 }
 
-func (t *Task) Start(sem chan struct{}) error {
+func (t *Task) Start() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.Status == Running {
@@ -50,9 +50,7 @@ func (t *Task) Start(sem chan struct{}) error {
 				t.wg.Done()
 			}
 		}()
-		sem <- struct{}{}
 		t.runWithCtx(t.ctx)
-		<-sem
 	}()
 	return nil
 }
@@ -86,10 +84,10 @@ func (t *Task) Stop() error {
 type TaskQueue struct {
 	Name        string           // 任务队列名称
 	Concurrency int              // 并发数
+	Priority    int              // 优先级
 	Tasks       map[string]*Task // 任务队列
 	mu          sync.Mutex
 	wg          *sync.WaitGroup
-	sem         chan struct{}
 }
 
 func (tq *TaskQueue) AddTask(task *Task) error {
@@ -120,7 +118,7 @@ func (tq *TaskQueue) StartTaskByName(taskName string) error {
 	if !exists {
 		return errors.New("task does not exist")
 	}
-	return task.Start(tq.sem)
+	return task.Start()
 }
 
 func (tq *TaskQueue) StopTaskByName(taskName string) error {
@@ -137,7 +135,7 @@ func (tq *TaskQueue) StartAllTasks() error {
 	tq.mu.Lock()
 	defer tq.mu.Unlock()
 	for _, task := range tq.Tasks {
-		if err := task.Start(tq.sem); err != nil {
+		if err := task.Start(); err != nil {
 			return err
 		}
 	}
@@ -169,7 +167,6 @@ func (tqm *TaskQueueManager) AddQueue(queue *TaskQueue) error {
 		return errors.New("queue already exists")
 	}
 	queue.wg = &tqm.wg
-	queue.sem = make(chan struct{}, queue.Concurrency) // Initialize the semaphore with the concurrency limit
 	tqm.Queues[queue.Name] = queue
 	tqm.Total++
 	return nil
@@ -192,15 +189,13 @@ func main() {
 	}
 
 	queue := &TaskQueue{
-		Name:        "queue1",
-		Tasks:       make(map[string]*Task),
-		Concurrency: 1, // Limit to two concurrent tasks
-
+		Name:  "queue1",
+		Tasks: make(map[string]*Task),
 	}
 
 	task := &Task{
 		ID:   1,
-		Name: "complexTask-1",
+		Name: "complexTask",
 		Action: func() {
 			time.Sleep(10 * time.Second)
 		},
@@ -209,7 +204,7 @@ func main() {
 
 	task2 := &Task{
 		ID:   2,
-		Name: "complexTask-2",
+		Name: "complexTask2",
 		Action: func() {
 			time.Sleep(10 * time.Second)
 		},
@@ -233,6 +228,7 @@ func main() {
 		return
 	}
 
+	// Start task by name
 	if err := queue.StartAllTasks(); err != nil {
 		fmt.Println(err)
 		return
@@ -252,6 +248,5 @@ func main() {
 		fmt.Println(err)
 		return
 	}
-
 	manager.wg.Wait() // Wait for all tasks to complete
 }
