@@ -28,6 +28,15 @@ type Task struct {
 	wg     *sync.WaitGroup
 }
 
+func NewTask(id int, name string, action func()) *Task {
+	return &Task{
+		ID:     id,
+		Name:   name,
+		Status: Pending,
+		Action: action,
+	}
+}
+
 func (t *Task) Start(sem chan struct{}) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -198,23 +207,13 @@ func run_example() {
 
 	}
 
-	task := &Task{
-		ID:   1,
-		Name: "complexTask-1",
-		Action: func() {
-			time.Sleep(10 * time.Second)
-		},
-		Status: Pending,
-	}
+	task1 := NewTask(1, "Task-1", func() {
+		time.Sleep(10 * time.Second)
+	})
 
-	task2 := &Task{
-		ID:   2,
-		Name: "complexTask-2",
-		Action: func() {
-			time.Sleep(10 * time.Second)
-		},
-		Status: Pending,
-	}
+	task2 := NewTask(2, "Task-2", func() {
+		time.Sleep(10 * time.Second)
+	})
 
 	// Add queue to manager
 	if err := manager.AddQueue(queue); err != nil {
@@ -223,7 +222,7 @@ func run_example() {
 	}
 
 	// Add task to queue
-	if err := queue.AddTask(task); err != nil {
+	if err := queue.AddTask(task1); err != nil {
 		fmt.Println(err)
 		return
 	}
@@ -241,14 +240,14 @@ func run_example() {
 	time.Sleep(2 * time.Second)
 
 	// Stop task by name
-	if err := queue.StopTaskByName("complexTask-1"); err != nil {
+	if err := queue.StopTaskByName("Task-1"); err != nil {
 		fmt.Println(err)
 		return
 	}
 	time.Sleep(2 * time.Second)
 
 	// Restart task by name
-	if err := queue.StartTaskByName("complexTask-1"); err != nil {
+	if err := queue.StartTaskByName("Task-1"); err != nil {
 		fmt.Println(err)
 		return
 	}
