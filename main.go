@@ -93,9 +93,9 @@ func (t *Task) Stop() error {
 }
 
 type TaskQueue struct {
-	Name        string           // 任务队列名称
-	Concurrency int              // 并发数
-	Tasks       map[string]*Task // 任务队列
+	Name        string
+	Concurrency int
+	Tasks       map[string]*Task
 	mu          sync.Mutex
 	wg          *sync.WaitGroup
 	sem         chan struct{}
@@ -204,7 +204,12 @@ func run_example() {
 		Name:        "queue1",
 		Tasks:       make(map[string]*Task),
 		Concurrency: 2, // Limit the number of concurrent tasks to 2
+	}
 
+	// Add queue to manager
+	if err := manager.AddQueue(queue); err != nil {
+		fmt.Println(err)
+		return
 	}
 
 	task1 := NewTask(1, "Task-1", func() {
@@ -214,12 +219,6 @@ func run_example() {
 	task2 := NewTask(2, "Task-2", func() {
 		time.Sleep(10 * time.Second)
 	})
-
-	// Add queue to manager
-	if err := manager.AddQueue(queue); err != nil {
-		fmt.Println(err)
-		return
-	}
 
 	// Add task to queue
 	if err := queue.AddTask(task1); err != nil {
@@ -252,7 +251,7 @@ func run_example() {
 		return
 	}
 
-	manager.wg.Wait() // Wait for all tasks to complete}
+	manager.wg.Wait() // Wait for all tasks to complete
 }
 
 func main() {
