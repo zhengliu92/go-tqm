@@ -241,14 +241,14 @@ func main() {
 	time.Sleep(2 * time.Second)
 
 	// Stop task by name
-	if err := queue.StopTaskByName("complexTask"); err != nil {
+	if err := queue.StopTaskByName("complexTask-1"); err != nil {
 		fmt.Println(err)
 		return
 	}
 	time.Sleep(2 * time.Second)
 
 	// Restart task by name
-	if err := queue.StartTaskByName("complexTask"); err != nil {
+	if err := queue.StartTaskByName("complexTask-1"); err != nil {
 		fmt.Println(err)
 		return
 	}
