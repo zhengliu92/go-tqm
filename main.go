@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -15,81 +14,17 @@ const (
 	Running  TaskStatus = "running"
 	Stopped  TaskStatus = "stopped"
 	Finished TaskStatus = "finished"
+	Failed   TaskStatus = "failed"
 )
 
 type Task struct {
-	ID     int
 	Name   string
 	Status TaskStatus
-	Action func()
+	Action func() error
 	ctx    context.Context
 	cancel context.CancelFunc
 	mu     sync.Mutex
 	wg     *sync.WaitGroup
-}
-
-func NewTask(id int, name string, action func()) *Task {
-	return &Task{
-		ID:     id,
-		Name:   name,
-		Status: Pending,
-		Action: action,
-	}
-}
-
-func (t *Task) Start(sem chan struct{}) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.Status == Running {
-		return errors.New("task is already running")
-	}
-	t.ctx, t.cancel = context.WithCancel(context.Background())
-	t.Status = Running
-	if t.wg != nil {
-		t.wg.Add(1)
-	}
-	go func() {
-		defer func() {
-			t.mu.Lock()
-			defer t.mu.Unlock()
-			if t.Status != Stopped {
-				t.Status = Finished
-			}
-			if t.wg != nil {
-				t.wg.Done()
-			}
-		}()
-		sem <- struct{}{}
-		t.runWithCtx(t.ctx)
-		<-sem
-	}()
-	return nil
-}
-
-func (t *Task) runWithCtx(ctx context.Context) {
-	done := make(chan struct{})
-	go func() {
-		fmt.Printf("Task %s is started\n", t.Name)
-		t.Action()
-		close(done)
-	}()
-	select {
-	case <-ctx.Done():
-		fmt.Printf("Task %s is stopped\n", t.Name)
-	case <-done:
-		fmt.Printf("Task %s is completed\n", t.Name)
-	}
-}
-
-func (t *Task) Stop() error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.Status != Running {
-		return errors.New("task is not running")
-	}
-	t.cancel()
-	t.Status = Stopped
-	return nil
 }
 
 type TaskQueue struct {
@@ -101,14 +36,141 @@ type TaskQueue struct {
 	sem         chan struct{}
 }
 
+type TaskQueueManager struct {
+	Queues map[string]*TaskQueue
+	mu     sync.Mutex
+	Total  int
+	wg     sync.WaitGroup
+}
+
+func (t *TaskQueueManager) GetQueueByName(queueName string) (*TaskQueue, error) {
+	if queue, exists := t.Queues[queueName]; exists {
+		return queue, nil
+	}
+	return nil, fmt.Errorf("queue %s does not exist", queueName)
+}
+
+type TaskInfoResp struct {
+	Queue  string
+	Name   string
+	Status TaskStatus
+}
+
+func (t *TaskQueue) GetTasksInfo() []TaskInfoResp {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	tasksInfo := make([]TaskInfoResp, 0)
+	for name, task := range t.Tasks {
+		tasksInfo = append(tasksInfo, TaskInfoResp{
+			Queue:  t.Name,
+			Name:   name,
+			Status: task.Status,
+		})
+	}
+	return tasksInfo
+}
+
+func (t *TaskQueueManager) GetQueuesInfo() *[]TaskInfoResp {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	tasksInfo := make([]TaskInfoResp, 0)
+	for _, queue := range t.Queues {
+		for name, task := range queue.Tasks {
+			tasksInfo = append(tasksInfo, TaskInfoResp{
+				Queue:  queue.Name,
+				Name:   name,
+				Status: task.Status,
+			})
+		}
+	}
+	return &tasksInfo
+}
+
+func (t *TaskQueueManager) ListQueueNames() []string {
+	queueNames := make([]string, 0)
+	for name := range t.Queues {
+		queueNames = append(queueNames, name)
+	}
+	return queueNames
+}
+
+func NewTask(name string, action func() error) *Task {
+	return &Task{
+		Name:   name,
+		Status: Pending,
+		Action: action,
+	}
+}
+
+func (t *Task) Start(timeOut time.Duration, sem chan struct{}) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.Status == Running {
+		return fmt.Errorf("task %s is already running", t.Name)
+	}
+	t.ctx, t.cancel = context.WithTimeout(context.Background(), timeOut)
+	t.Status = Running
+	t.wg.Add(1)
+	go func() {
+		defer func() {
+			t.mu.Lock()
+			defer t.mu.Unlock()
+			t.wg.Done()
+		}()
+		sem <- struct{}{}
+		t.runWithCtx(t.ctx)
+		<-sem
+	}()
+	return nil
+}
+
+func (t *Task) runWithCtx(ctx context.Context) {
+	done := make(chan struct{})
+	run_err := make(chan error)
+	go func() {
+		Logrus.Infof("Task %s is started\n", t.Name)
+		err := t.Action()
+		if err != nil {
+			run_err <- err
+		}
+		close(done)
+	}()
+	select {
+	case <-ctx.Done():
+		Logrus.Infof("Task %s is stopped\n", t.Name)
+		t.Status = Stopped
+	case <-done:
+		Logrus.Infof("Task %s is completed\n", t.Name)
+		t.Status = Finished
+	case err := <-run_err:
+		Logrus.Errorf("Task %s is failed: %v\n", t.Name, err)
+		t.Status = Failed
+	}
+}
+
+func (t *Task) Stop() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.Status != Running {
+		return fmt.Errorf("task %s is not running", t.Name)
+	}
+	t.cancel()
+	return nil
+}
+
 func (tq *TaskQueue) AddTask(task *Task) error {
 	tq.mu.Lock()
 	defer tq.mu.Unlock()
-	if _, exists := tq.Tasks[task.Name]; exists {
-		return errors.New("task already exists in queue")
+	if itask, exists := tq.Tasks[task.Name]; exists {
+		if itask.Status == Running {
+			return fmt.Errorf("task %s already exists in queue %s", task.Name, tq.Name)
+		} else {
+			tq.RemoveTask(itask)
+		}
 	}
 	task.wg = tq.wg
 	tq.Tasks[task.Name] = task
+	Logrus.Infof("Task %s is added to queue %s\n", task.Name, tq.Name)
 	return nil
 }
 
@@ -116,20 +178,27 @@ func (tq *TaskQueue) RemoveTask(task *Task) error {
 	tq.mu.Lock()
 	defer tq.mu.Unlock()
 	if _, exists := tq.Tasks[task.Name]; !exists {
-		return errors.New("task does not exist in queue")
+		return fmt.Errorf("task %s does not exist in queue %s", task.Name, tq.Name)
 	}
 	delete(tq.Tasks, task.Name)
 	return nil
 }
+func (tq *TaskQueue) WaitAll() {
+	tq.wg.Wait()
+}
 
-func (tq *TaskQueue) StartTaskByName(taskName string) error {
+func (tqm *TaskQueueManager) WaitAll() {
+	tqm.wg.Wait()
+}
+
+func (tq *TaskQueue) StartTaskByName(taskName string, timeOut time.Duration) error {
 	tq.mu.Lock()
 	defer tq.mu.Unlock()
 	task, exists := tq.Tasks[taskName]
 	if !exists {
-		return errors.New("task does not exist")
+		return fmt.Errorf("task %s does not exist", taskName)
 	}
-	return task.Start(tq.sem)
+	return task.Start(timeOut, tq.sem)
 }
 
 func (tq *TaskQueue) StopTaskByName(taskName string) error {
@@ -137,16 +206,16 @@ func (tq *TaskQueue) StopTaskByName(taskName string) error {
 	defer tq.mu.Unlock()
 	task, exists := tq.Tasks[taskName]
 	if !exists {
-		return errors.New("task does not exist")
+		return fmt.Errorf("task %s does not exist", taskName)
 	}
 	return task.Stop()
 }
 
-func (tq *TaskQueue) StartAllTasks() error {
+func (tq *TaskQueue) StartAllTasks(timeOut time.Duration) error {
 	tq.mu.Lock()
 	defer tq.mu.Unlock()
 	for _, task := range tq.Tasks {
-		if err := task.Start(tq.sem); err != nil {
+		if err := task.Start(timeOut, tq.sem); err != nil {
 			return err
 		}
 	}
@@ -164,18 +233,11 @@ func (tq *TaskQueue) StopAllTasks() error {
 	return nil
 }
 
-type TaskQueueManager struct {
-	Queues map[string]*TaskQueue
-	mu     sync.Mutex
-	Total  int
-	wg     sync.WaitGroup
-}
-
 func (tqm *TaskQueueManager) AddQueue(queue *TaskQueue) error {
 	tqm.mu.Lock()
 	defer tqm.mu.Unlock()
 	if _, exists := tqm.Queues[queue.Name]; exists {
-		return errors.New("queue already exists")
+		return fmt.Errorf("queue %s already exists", queue.Name)
 	}
 	queue.wg = &tqm.wg
 	queue.sem = make(chan struct{}, queue.Concurrency) // Initialize the semaphore with the concurrency limit
@@ -188,72 +250,29 @@ func (tqm *TaskQueueManager) RemoveQueue(queue *TaskQueue) error {
 	tqm.mu.Lock()
 	defer tqm.mu.Unlock()
 	if _, exists := tqm.Queues[queue.Name]; !exists {
-		return errors.New("queue does not exist")
+		return fmt.Errorf("queue %s does not exist", queue.Name)
 	}
 	delete(tqm.Queues, queue.Name)
 	tqm.Total--
 	return nil
 }
 
-func run_example() {
+func NewQueue(name string, concurrency int) *TaskQueue {
+	return &TaskQueue{
+		Name:        name,
+		Concurrency: concurrency,
+		Tasks:       make(map[string]*Task),
+	}
+}
+
+func NewTaskQueueManager() *TaskQueueManager {
 	manager := &TaskQueueManager{
 		Queues: make(map[string]*TaskQueue),
 	}
-
-	queue := &TaskQueue{
-		Name:        "queue1",
-		Tasks:       make(map[string]*Task),
-		Concurrency: 2, // Limit the number of concurrent tasks to 2
-	}
-
-	// Add queue to manager
-	if err := manager.AddQueue(queue); err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	task1 := NewTask(1, "Task-1", func() {
-		time.Sleep(10 * time.Second)
-	})
-
-	task2 := NewTask(2, "Task-2", func() {
-		time.Sleep(10 * time.Second)
-	})
-
-	// Add task to queue
-	if err := queue.AddTask(task1); err != nil {
-		fmt.Println(err)
-		return
-	}
-	// Add task to queue
-	if err := queue.AddTask(task2); err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	if err := queue.StartAllTasks(); err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	time.Sleep(2 * time.Second)
-
-	// Stop task by name
-	if err := queue.StopTaskByName("Task-1"); err != nil {
-		fmt.Println(err)
-		return
-	}
-	time.Sleep(2 * time.Second)
-
-	// Restart task by name
-	if err := queue.StartTaskByName("Task-1"); err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	manager.wg.Wait() // Wait for all tasks to complete
+	manager.AddQueue(NewQueue("default", 10))
+	manager.AddQueue(NewQueue("low", 20))
+	manager.AddQueue(NewQueue("high", 5))
+	return manager
 }
 
-func main() {
-	run_example()
-}
+var ITaskQueueManager = NewTaskQueueManager()
