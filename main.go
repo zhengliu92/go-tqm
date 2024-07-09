@@ -18,13 +18,14 @@ const (
 )
 
 type Task struct {
-	Name   string
-	Status TaskStatus
-	Action func() error
-	ctx    context.Context
-	cancel context.CancelFunc
-	mu     sync.Mutex
-	wg     *sync.WaitGroup
+	Name     string
+	Status   TaskStatus
+	Action   func() error
+	ctx      context.Context
+	cancel   context.CancelFunc
+	mu       sync.Mutex
+	wg       *sync.WaitGroup
+	ErrorMsg string
 }
 
 type TaskQueue struct {
@@ -51,9 +52,10 @@ func (t *TaskQueueManager) GetQueueByName(queueName string) (*TaskQueue, error) 
 }
 
 type TaskInfoResp struct {
-	Queue  string
-	Name   string
-	Status TaskStatus
+	Queue    string
+	Name     string
+	Status   TaskStatus
+	ErrorMsg string
 }
 
 func (t *TaskQueue) GetTasksInfo() []TaskInfoResp {
@@ -77,9 +79,10 @@ func (t *TaskQueueManager) GetQueuesInfo() *[]TaskInfoResp {
 	for _, queue := range t.Queues {
 		for name, task := range queue.Tasks {
 			tasksInfo = append(tasksInfo, TaskInfoResp{
-				Queue:  queue.Name,
-				Name:   name,
-				Status: task.Status,
+				Queue:    queue.Name,
+				Name:     name,
+				Status:   task.Status,
+				ErrorMsg: task.ErrorMsg,
 			})
 		}
 	}
@@ -144,6 +147,7 @@ func (t *Task) runWithCtx(ctx context.Context) {
 		t.Status = Finished
 	case err := <-run_err:
 		Logrus.Errorf("Task %s is failed: %v\n", t.Name, err)
+		t.ErrorMsg = err.Error()
 		t.Status = Failed
 	}
 }
