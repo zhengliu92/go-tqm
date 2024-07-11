@@ -97,12 +97,28 @@ func (t *TaskQueueManager) ListQueueNames() []string {
 	return queueNames
 }
 
-func NewTask(name string, action func() error) *Task {
+type Action func() error
+
+func NewTask(name string, action Action) *Task {
 	return &Task{
 		Name:   name,
 		Status: Pending,
 		Action: action,
 	}
+}
+func (t *TaskQueueManager) DeleteTask(taskName string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, queue := range t.Queues {
+		if task, exists := queue.Tasks[taskName]; exists {
+			if task.Status == Running {
+				return fmt.Errorf("task %s is running, stop it first", taskName)
+			}
+			delete(queue.Tasks, taskName)
+			return nil
+		}
+	}
+	return fmt.Errorf("task %s does not exist", taskName)
 }
 
 func (t *Task) Start(timeOut time.Duration, sem chan struct{}) error {
@@ -111,8 +127,12 @@ func (t *Task) Start(timeOut time.Duration, sem chan struct{}) error {
 	if t.Status == Running {
 		return fmt.Errorf("task %s is already running", t.Name)
 	}
+	// 初始化上下文和取消函数
 	t.ctx, t.cancel = context.WithTimeout(context.Background(), timeOut)
 	t.Status = Running
+	if t.wg == nil {
+		t.wg = &sync.WaitGroup{}
+	}
 	t.wg.Add(1)
 	go func() {
 		defer func() {
@@ -131,12 +151,14 @@ func (t *Task) runWithCtx(ctx context.Context) {
 	done := make(chan struct{})
 	run_err := make(chan error)
 	go func() {
+		defer close(run_err)
 		Logrus.Infof("Task %s is started\n", t.Name)
 		err := t.Action()
 		if err != nil {
 			run_err <- err
+		} else {
+			close(done)
 		}
-		close(done)
 	}()
 	select {
 	case <-ctx.Done():
@@ -169,7 +191,7 @@ func (tq *TaskQueue) AddTask(task *Task) error {
 		if itask.Status == Running {
 			return fmt.Errorf("task %s already exists in queue %s", task.Name, tq.Name)
 		} else {
-			tq.RemoveTask(itask)
+			delete(tq.Tasks, task.Name)
 		}
 	}
 	task.wg = tq.wg
@@ -205,14 +227,18 @@ func (tq *TaskQueue) StartTaskByName(taskName string, timeOut time.Duration) err
 	return task.Start(timeOut, tq.sem)
 }
 
-func (tq *TaskQueue) StopTaskByName(taskName string) error {
+func (tq *TaskQueueManager) StopTaskByName(taskName string) error {
 	tq.mu.Lock()
 	defer tq.mu.Unlock()
-	task, exists := tq.Tasks[taskName]
-	if !exists {
-		return fmt.Errorf("task %s does not exist", taskName)
+	for _, queue := range tq.Queues {
+		if task, exists := queue.Tasks[taskName]; exists {
+			if task.Status != Running {
+				return fmt.Errorf("task %s is not running", taskName)
+			}
+			return task.Stop()
+		}
 	}
-	return task.Stop()
+	return fmt.Errorf("task %s does not exist", taskName)
 }
 
 func (tq *TaskQueue) StartAllTasks(timeOut time.Duration) error {
@@ -226,12 +252,16 @@ func (tq *TaskQueue) StartAllTasks(timeOut time.Duration) error {
 	return nil
 }
 
-func (tq *TaskQueue) StopAllTasks() error {
+func (tq *TaskQueueManager) StopAllTasks() error {
 	tq.mu.Lock()
 	defer tq.mu.Unlock()
-	for _, task := range tq.Tasks {
-		if err := task.Stop(); err != nil {
-			return err
+	for _, queue := range tq.Queues {
+		for _, task := range queue.Tasks {
+			if task.Status == Running {
+				if err := task.Stop(); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil
