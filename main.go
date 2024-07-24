@@ -357,23 +357,3 @@ func (tq *TaskQueue) IsAnyTaskUpdated() {
 }
 
 var ITaskQueueManager = NewTaskQueueManager()
-
-func main() {
-	// Example usage
-	task1 := NewTask("task1", func() error {
-		time.Sleep(5 * time.Second)
-		return nil
-	})
-	task2 := NewTask("task2", func() error {
-		time.Sleep(5 * time.Second)
-		return nil
-	})
-	queue_default, _ := ITaskQueueManager.GetQueueByName("default")
-	queue_high, _ := ITaskQueueManager.GetQueueByName("high")
-	queue_default.AddTask(task1)
-	queue_default.StartAllTasks(2 * time.Second)
-	time.Sleep(2 * time.Second)
-	queue_high.AddTask(task2)
-	queue_high.StartAllTasks(10 * time.Second)
-	ITaskQueueManager.WaitAll()
-}
