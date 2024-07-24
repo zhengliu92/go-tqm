@@ -26,6 +26,7 @@ type Task struct {
 	mu       sync.Mutex
 	wg       *sync.WaitGroup
 	ErrorMsg string
+	updated  chan struct{}
 }
 
 type TaskQueue struct {
@@ -35,13 +36,15 @@ type TaskQueue struct {
 	mu          sync.Mutex
 	wg          *sync.WaitGroup
 	sem         chan struct{}
+	updated     chan struct{}
 }
 
 type TaskQueueManager struct {
-	Queues map[string]*TaskQueue
-	mu     sync.Mutex
-	Total  int
-	wg     sync.WaitGroup
+	Queues    map[string]*TaskQueue
+	mu        sync.Mutex
+	Total     int
+	wg        sync.WaitGroup
+	n_updates int
 }
 
 func (t *TaskQueueManager) GetQueueByName(queueName string) (*TaskQueue, error) {
@@ -101,11 +104,13 @@ type Action func() error
 
 func NewTask(name string, action Action) *Task {
 	return &Task{
-		Name:   name,
-		Status: Pending,
-		Action: action,
+		Name:    name,
+		Status:  Pending,
+		Action:  action,
+		updated: make(chan struct{}, 1),
 	}
 }
+
 func (t *TaskQueueManager) DeleteTask(taskName string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -127,9 +132,10 @@ func (t *Task) Start(timeOut time.Duration, sem chan struct{}) error {
 	if t.Status == Running {
 		return fmt.Errorf("task %s is already running", t.Name)
 	}
-	// 初始化上下文和取消函数
+	// Initialize context and cancel function
 	t.ctx, t.cancel = context.WithTimeout(context.Background(), timeOut)
 	t.Status = Running
+	t.updated <- struct{}{} // Notify task update
 	if t.wg == nil {
 		t.wg = &sync.WaitGroup{}
 	}
@@ -149,29 +155,31 @@ func (t *Task) Start(timeOut time.Duration, sem chan struct{}) error {
 
 func (t *Task) runWithCtx(ctx context.Context) {
 	done := make(chan struct{})
-	run_err := make(chan error)
+	runErr := make(chan error)
 	go func() {
-		defer close(run_err)
+		defer close(runErr)
 		Logrus.Infof("Task %s is started\n", t.Name)
 		err := t.Action()
 		if err != nil {
-			run_err <- err
+			runErr <- err
 		} else {
 			close(done)
 		}
 	}()
 	select {
 	case <-ctx.Done():
-		Logrus.Infof("Task %s is stopped\n", t.Name)
+		Logrus.Warnf("Task %s is stopped\n", t.Name)
 		t.Status = Stopped
 	case <-done:
 		Logrus.Infof("Task %s is completed\n", t.Name)
 		t.Status = Finished
-	case err := <-run_err:
+		t.Action = nil
+	case err := <-runErr:
 		Logrus.Errorf("Task %s is failed: %v\n", t.Name, err)
 		t.ErrorMsg = err.Error()
 		t.Status = Failed
 	}
+	t.updated <- struct{}{} // Notify task update
 }
 
 func (t *Task) Stop() error {
@@ -181,6 +189,7 @@ func (t *Task) Stop() error {
 		return fmt.Errorf("task %s is not running", t.Name)
 	}
 	t.cancel()
+	t.updated <- struct{}{} // Notify task update
 	return nil
 }
 
@@ -209,6 +218,7 @@ func (tq *TaskQueue) RemoveTask(task *Task) error {
 	delete(tq.Tasks, task.Name)
 	return nil
 }
+
 func (tq *TaskQueue) WaitAll() {
 	tq.wg.Wait()
 }
@@ -245,6 +255,9 @@ func (tq *TaskQueue) StartAllTasks(timeOut time.Duration) error {
 	tq.mu.Lock()
 	defer tq.mu.Unlock()
 	for _, task := range tq.Tasks {
+		if task.Status == Running {
+			continue
+		}
 		if err := task.Start(timeOut, tq.sem); err != nil {
 			return err
 		}
@@ -275,8 +288,10 @@ func (tqm *TaskQueueManager) AddQueue(queue *TaskQueue) error {
 	}
 	queue.wg = &tqm.wg
 	queue.sem = make(chan struct{}, queue.Concurrency) // Initialize the semaphore with the concurrency limit
+	queue.updated = make(chan struct{}, 1)
 	tqm.Queues[queue.Name] = queue
 	tqm.Total++
+	go queue.IsAnyTaskUpdated() // Start the task update watcher for the queue
 	return nil
 }
 
@@ -296,6 +311,7 @@ func NewQueue(name string, concurrency int) *TaskQueue {
 		Name:        name,
 		Concurrency: concurrency,
 		Tasks:       make(map[string]*Task),
+		updated:     make(chan struct{}, 1),
 	}
 }
 
@@ -306,7 +322,58 @@ func NewTaskQueueManager() *TaskQueueManager {
 	manager.AddQueue(NewQueue("default", 10))
 	manager.AddQueue(NewQueue("low", 20))
 	manager.AddQueue(NewQueue("high", 5))
+	go manager.IsAnyTaskUpdate()
 	return manager
 }
 
+func (tqm *TaskQueueManager) IsAnyTaskUpdate() {
+	for range time.Tick(time.Second) {
+		tqm.mu.Lock()
+		for _, queue := range tqm.Queues {
+			select {
+			case <-queue.updated:
+				Logrus.Infof("Queue %s has task updates\n", queue.Name)
+				tqm.n_updates = (tqm.n_updates + 1) % 10
+			default:
+			}
+		}
+		tqm.mu.Unlock()
+	}
+}
+
+func (tq *TaskQueue) IsAnyTaskUpdated() {
+	for range time.Tick(time.Second) {
+		tq.mu.Lock()
+		for _, task := range tq.Tasks {
+			select {
+			case <-task.updated:
+				Logrus.Infof("Task %s in queue %s has been updated\n", task.Name, tq.Name)
+				tq.updated <- struct{}{} // Notify queue update
+			default:
+			}
+		}
+		tq.mu.Unlock()
+	}
+}
+
 var ITaskQueueManager = NewTaskQueueManager()
+
+func main() {
+	// Example usage
+	task1 := NewTask("task1", func() error {
+		time.Sleep(5 * time.Second)
+		return nil
+	})
+	task2 := NewTask("task2", func() error {
+		time.Sleep(5 * time.Second)
+		return nil
+	})
+	queue_default, _ := ITaskQueueManager.GetQueueByName("default")
+	queue_high, _ := ITaskQueueManager.GetQueueByName("high")
+	queue_default.AddTask(task1)
+	queue_default.StartAllTasks(2 * time.Second)
+	time.Sleep(2 * time.Second)
+	queue_high.AddTask(task2)
+	queue_high.StartAllTasks(10 * time.Second)
+	ITaskQueueManager.WaitAll()
+}
