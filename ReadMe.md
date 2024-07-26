@@ -1,62 +1,106 @@
-# Super Light weight Golang Task Queue Management System
-
-This Go program defines a concurrent task management system that allows tasks to be queued, started, stopped, and managed across multiple queues.
+# Task Queue Manager
 
 ## Overview
 
-The program consists of several key components:
-
-- `Task`: Represents a single task with an associated action, status, and control mechanisms.
-- `TaskQueue`: Manages a collection of tasks, providing functionality to add, remove, start, and stop tasks within the queue.
-- `TaskQueueManager`: Oversees multiple task queues, handling their creation and removal.
+The Task Queue Manager is a Go library for managing and executing concurrent tasks with configurable concurrency levels. It allows you to define multiple task queues, each with its own concurrency limit, and manage tasks within these queues. The manager provides features for adding, starting, stopping, and monitoring tasks.
 
 ## Features
 
-- **Concurrent Task Execution**: Tasks within a queue can run concurrently, controlled by a semaphore that limits the number of simultaneously running tasks.
-- **Task Lifecycle Management**: Tasks can be individually started and stopped.
-- **Queue Management**: Task queues can be dynamically added to and removed from the system, with tasks being managed within specific queues.
+- Create and manage multiple task queues.
+- Define tasks with custom actions.
+- Configure concurrency levels for each queue.
+- Start and stop tasks with timeout control.
+- Monitor task statuses and get detailed task information.
+- Ensure thread-safe operations with synchronization mechanisms.
 
 ## Usage
 
-### Task Structure
+### 1. Creating a Task
 
-Each task is defined with:
+To create a task, define an action function and use the NewTask function:
 
-- A unique ID and name.
-- An action to execute.
-- A status to monitor its lifecycle (Pending, Running, Stopped, Finished).
+```go
+action := func() error {
+    // Your task logic here
+    return nil
+}
+task := NewTask("myTask", action)
+```
 
-### Adding Tasks to a Queue
+### 2. Adding a Task to a Queue
 
-Tasks must be added to a task queue before they can be started. Each task queue supports a specified level of concurrency, defining how many tasks can run in parallel.
+To add a task to a queue, get the queue by name and use the AddTask method:
 
-### Starting and Stopping Tasks
+```go
+queue, err := ITaskQueueManager.GetQueueByName("default")
+if err != nil {
+    // Handle error
+}
+err = queue.AddTask(task)
+if err != nil {
+    // Handle error
+}
+```
 
-Tasks can be started or stopped individually by name or all at once within their respective queue. This is managed through context cancellation to handle task stoppage gracefully.
+### 3.Starting a Task
 
-### Managing Task Queues
+To start a task by name, use the StartTaskByName method of the queue:
 
-Task queues can be added to the system dynamically, each with its own concurrency limit. Queues manage their tasks independently and are themselves managed by a `TaskQueueManager`.
+```go
+err = queue.StartTaskByName("myTask", 10*time.Second)
+if err != nil {
+    // Handle error
+}
+```
 
-## Example
+### 4. Stopping a Task
 
-The provided `example` function demonstrates setting up a task queue manager, adding a queue, populating it with tasks, and starting and stopping these tasks.
+To stop a running task, use the StopTaskByName method of the TaskQueueManager:
 
-## Building and Running
+```go
+err = ITaskQueueManager.StopTaskByName("myTask")
+if err != nil {
+    // Handle error
+}
+```
 
-To build and run this program:
+### 5. Getting Task Information
 
-1. Ensure you have Go installed on your system.
-2. Save the code to a file named `main.go`.
-3. Run the command `go build main.go` to compile the program.
-4. Execute `./main` to run the compiled program.
+To get information about all tasks in a queue, use the GetTasksInfo method:
 
-## Dependencies
+```go
+tasksInfo := queue.GetTasksInfo()
+for _, info := range tasksInfo {
+    fmt.Printf("Task: %s, Status: %s\n", info.Name, info.Status)
+}
+```
 
-This program uses the following Go packages:
+To get information about all tasks across all queues, use the GetQueuesInfo method:
 
-- `context`: For managing task cancellation.
-- `sync`: For mutexes and wait groups to handle concurrency.
-- `time`: For simulating task durations.
+```go
+tasksInfo := ITaskQueueManager.GetQueuesInfo()
+for _, info := range *tasksInfo {
+    fmt.Printf("Queue: %s, Task: %s, Status: %s, Error: %s\n", info.Queue, info.Name, info.Status, info.ErrorMsg)
+}
+```
 
-This task management system can be adapted for various use cases requiring asynchronous task execution and management within a Go application.
+### 6.Managin#g Queues
+
+You can add new queues with specific concurrency levels:
+
+```go
+newQueue := NewQueue("custom", 15)
+err := ITaskQueueManager.AddQueue(newQueue)
+if err != nil {
+    // Handle error
+}
+```
+
+You can also list all queue names:
+
+```go
+queueNames := ITaskQueueManager.ListQueueNames()
+for _, name := range queueNames {
+    fmt.Println(name)
+}
+```

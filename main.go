@@ -315,17 +315,6 @@ func NewQueue(name string, concurrency int) *TaskQueue {
 	}
 }
 
-func NewTaskQueueManager() *TaskQueueManager {
-	manager := &TaskQueueManager{
-		Queues: make(map[string]*TaskQueue),
-	}
-	manager.AddQueue(NewQueue("default", 10))
-	manager.AddQueue(NewQueue("low", 20))
-	manager.AddQueue(NewQueue("high", 5))
-	go manager.IsAnyTaskUpdate()
-	return manager
-}
-
 func (tqm *TaskQueueManager) IsAnyTaskUpdate() {
 	for range time.Tick(time.Second) {
 		tqm.mu.Lock()
@@ -356,4 +345,13 @@ func (tq *TaskQueue) IsAnyTaskUpdated() {
 	}
 }
 
-var ITaskQueueManager = NewTaskQueueManager()
+func NewTaskQueueManager() *TaskQueueManager {
+	manager := &TaskQueueManager{
+		Queues: make(map[string]*TaskQueue),
+	}
+	manager.AddQueue(NewQueue("default", 10))
+	manager.AddQueue(NewQueue("low", 20))
+	manager.AddQueue(NewQueue("high", 5))
+	go manager.IsAnyTaskUpdate()
+	return manager
+}
