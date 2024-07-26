@@ -29,14 +29,14 @@ You can create a TaskQueueManager instance with default queues and start a gorou
 
 ```go
 func NewTaskQueueManager() *TaskQueueManager {
-	manager := &TaskQueueManager{
-		Queues: make(map[string]*TaskQueue),
-	}
-	manager.AddQueue(NewQueue("default", 10))
-	manager.AddQueue(NewQueue("low", 20))
-	manager.AddQueue(NewQueue("high", 5))
-	go manager.IsAnyTaskUpdate()
-	return manager
+    manager := &TaskQueueManager{
+        Queues: make(map[string]*TaskQueue),
+    }
+    manager.AddQueue(NewQueue("default", 10))
+    manager.AddQueue(NewQueue("low", 20))
+    manager.AddQueue(NewQueue("high", 5))
+    go manager.IsAnyTaskUpdate()
+    return manager
 }
 ITaskQueueManager = NewTaskQueueManager()
 ```
