@@ -18,7 +18,7 @@ The Task Queue Manager is a Go library for managing and executing concurrent tas
 To install the Task Queue Manager, use:
 
 ```bash
-go get github.com/zhengliu92/go-tqm@1.0.0
+go get github.com/zhengliu92/go-tqm@v1.0.0
 ```
 
 ## Usage
