@@ -23,7 +23,23 @@ go get github.com/zhengliu92/go-tqm@v1.0.0
 
 ## Usage
 
-### 1. Creating a Task
+### 1. Initializing the Task Queue Manager
+
+```go
+func NewTaskQueueManager() *TaskQueueManager {
+	manager := &TaskQueueManager{
+		Queues: make(map[string]*TaskQueue),
+	}
+	manager.AddQueue(NewQueue("default", 10))
+	manager.AddQueue(NewQueue("low", 20))
+	manager.AddQueue(NewQueue("high", 5))
+	go manager.IsAnyTaskUpdate()
+	return manager
+}
+ITaskQueueManager = NewTaskQueueManager()
+```
+
+### 2. Creating a Task
 
 To create a task, define an action function and use the NewTask function:
 
@@ -35,7 +51,7 @@ action := func() error {
 task := NewTask("myTask", action)
 ```
 
-### 2. Adding a Task to a Queue
+### 3. Adding a Task to a Queue
 
 To add a task to a queue, get the queue by name and use the AddTask method:
 
@@ -50,7 +66,7 @@ if err != nil {
 }
 ```
 
-### 3.Starting a Task
+### 4.Starting a Task
 
 To start a task by name, use the StartTaskByName method of the queue:
 
@@ -61,7 +77,7 @@ if err != nil {
 }
 ```
 
-### 4. Stopping a Task
+### 5. Stopping a Task
 
 To stop a running task, use the StopTaskByName method of the TaskQueueManager:
 
@@ -72,7 +88,7 @@ if err != nil {
 }
 ```
 
-### 5. Getting Task Information
+### 6. Getting Task Information
 
 To get information about all tasks in a queue, use the GetTasksInfo method:
 
@@ -92,7 +108,7 @@ for _, info := range *tasksInfo {
 }
 ```
 
-### 6.Managin#g Queues
+### 7.Managin#g Queues
 
 You can add new queues with specific concurrency levels:
 
