@@ -25,6 +25,8 @@ go get github.com/zhengliu92/go-tqm@v1.0.0
 
 ### 1. Initializing the Task Queue Manager
 
+You can create a TaskQueueManager instance with default queues and start a goroutine to monitor task updates:
+
 ```go
 func NewTaskQueueManager() *TaskQueueManager {
 	manager := &TaskQueueManager{
@@ -127,4 +129,12 @@ queueNames := ITaskQueueManager.ListQueueNames()
 for _, name := range queueNames {
     fmt.Println(name)
 }
+```
+
+### 8. Run Test
+
+You can run the test cases by using the following command:
+
+```bash
+ go test -v .
 ```
