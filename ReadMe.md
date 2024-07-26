@@ -108,7 +108,7 @@ for _, info := range *tasksInfo {
 }
 ```
 
-### 7.Managin#g Queues
+### 7.Managing Queues
 
 You can add new queues with specific concurrency levels:
 
